@@ -1,15 +1,17 @@
-import numpy as np
+import os
 
-from pydrake.solvers import MathematicalProgram, Solve
-from pydrake.multibody.plant import MultibodyPlant
+import numpy as np
 from pydrake.multibody.parsing import Parser
+from pydrake.multibody.plant import MultibodyPlant
+from pydrake.solvers import (CommonSolverOption, 
+                             MathematicalProgram,
+                             SolverOptions)
+from pydrake.solvers.osqp import OsqpSolver
 from pydrake.systems.framework import Context, LeafSystem
-from pydrake.solvers.snopt import SnoptSolver
-from pydrake.solvers.ipopt import IpoptSolver
-from pydrake.solvers import CommonSolverOption, SolverOptions
 
 from gait_trans.utils import rotation_z_mat, skew
 
+# MPC control class for quadruped
 
 class QuadrupedMPC(LeafSystem):
 
@@ -45,7 +47,7 @@ class QuadrupedMPC(LeafSystem):
         self.g[9:] = np.array([0, 0, -self.m*9.81])
         
         self.Q = np.diag([1, 1, 1, 10, 10, 10, 1, 1, 1, 1, 1, 1])
-        self.R = np.eye(12)
+        self.R = np.eye(12)#1 * np.diag([1, 1, 10, 1, 1, 10, 1, 1, 10, 1, 1, 10])
 
     def discrete_time_dynamics(self, x_ref_k, r_k):
         """
@@ -83,7 +85,6 @@ class QuadrupedMPC(LeafSystem):
             B_k[9:, 3 * i:3 * (i + 1)] = I3 * self.dt / self.m
         
         return A_k, B_k
-    
         
     def add_initial_constraints(self, x, x_ref):
         """
@@ -95,7 +96,7 @@ class QuadrupedMPC(LeafSystem):
         
         x_ref - (N, 12) array of reference body states
         """
-        init_constraint = self.prog.AddBoundingBoxConstraint(x_ref[0, :], x_ref[0, :], x[0, :])
+        init_constraint = self.prog.AddLinearEqualityConstraint(x[0, :], x_ref[0, :])
         init_constraint.evaluator().set_description("initial constraint")
         
     def get_fk(self, indices, f):
@@ -107,10 +108,20 @@ class QuadrupedMPC(LeafSystem):
         indices - list of indices for contact forces
         
         f - (12,) array of reaction forces for current time step
+        
+        example:
+        
+        f = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+        indices = [0, 2]
+        f_k = np.array([1, 2, 3, 7, 8, 9])
+        
+        output:
+        
+        f_k - (3*num_contacts,1) array of reaction forces for current time step
         """
         f_k = np.zeros((len(indices)*3, 1), dtype="object")
         for i, idx in enumerate(indices):
-            f_k[3*i:3*(i+1), :] = f[idx:idx+3].reshape(3,1)
+            f_k[3*i:3*(i+1), :] = f[3*idx:3*(idx+1)].reshape(3,1)
             
         return f_k
     
@@ -144,10 +155,10 @@ class QuadrupedMPC(LeafSystem):
             x_kp1 = x[i + 1, :]
 
             A_k, B_k = self.discrete_time_dynamics(x_ref[i, :], r_k)
-            dyn = A_k @ x_k + B_k @ f_k + self.g
-            for j in range(12):
-                dyn_constraint = self.prog.AddLinearEqualityConstraint(x_kp1[j] == dyn[j])
-                dyn_constraint.evaluator().set_description("dynamics constraint i={0} j={1}".format(i, j))
+            dyn = A_k @ x_k + B_k @ f_k + self.g - x_kp1
+            
+            dyn_constraint = self.prog.AddLinearEqualityConstraint(dyn, np.zeros((12,)))
+            dyn_constraint.evaluator().set_description("dynamics constraint")
     
     def add_contact_constraints(self, f, fsm, mu=0.7):
         """
@@ -169,32 +180,20 @@ class QuadrupedMPC(LeafSystem):
         """
         
         for i in range(self.N-1):
-            in_contact = np.where(fsm[i, :] == 1)[0]
-            not_in_contact = np.where(fsm[i, :] == 0)[0]
-            f_k = self.get_fk(in_contact, f[i, :])
-            f_k_not = self.get_fk(not_in_contact, f[i, :])
-            # legs not in contact should have zero ground reaction forces
-            #self.prog.AddBoundingBoxConstraint(np.zeros((3 * len(not_in_contact), 1)),
-            #                                   np.zeros((3 * len(not_in_contact), 1)), 
-            #                                   f_k_not)
             
+            
+            in_contact = np.where(fsm[i, :] == 1)[0]
+            f_k = self.get_fk(in_contact, f[i, :])
+
             num_contacts = len(in_contact)
-            epsilon = 2e-3
+            
             for j in range(num_contacts):
+                A = np.array( [[1, 0, -mu], [-1, 0, -mu], [0, 1, -mu], [0, -1, -mu], [0, 0, -1]])
                 f_k_j = f_k[3 * j:3 * (j + 1)]
-                f_k_jx = f_k_j[0][0]
-                f_k_jy = f_k_j[1][0]
-                f_k_jz = f_k_j[2][0]
-                fx_constraint1 = self.prog.AddConstraint(f_k_jx - mu * f_k_jz <= 0)
-                fx_constraint1.evaluator().set_description("fx <= mu * fz i={0} j={1}".format(i, j))
-                fx_constraint2 = self.prog.AddConstraint(f_k_jx + mu * f_k_jz >= 0)
-                fx_constraint2.evaluator().set_description("fx >= -mu * fz i={0} j={1}".format(i, j))
-                fy_constraint1 = self.prog.AddConstraint(f_k_jy - mu * f_k_jz <= 0)
-                fy_constraint1.evaluator().set_description("fy <= mu * fz i={0} j={1}".format(i, j))
-                fy_constraint2 = self.prog.AddConstraint(f_k_jy + mu * f_k_jz >= 0)
-                fy_constraint2.evaluator().set_description("fy >= -mu * fz i={0} j={1}".format(i, j))
-                fz_constraint = self.prog.AddConstraint(f_k_jz >= 0 + epsilon)
-                fz_constraint.evaluator().set_description("fz >= 0 i={0} j={1}".format(i, j))
+                ub = np.array([0, 0, 0, 0, 0])
+                lb = np.array([-np.inf, -np.inf, -np.inf, -np.inf, -np.inf])
+                f_contact = self.prog.AddLinearConstraint(A@f_k_j,lb,ub)
+                f_contact.evaluator().set_description("font contact constraint j={}".format(j))
                 
     def add_cost(self, x, x_ref, f):
         """
@@ -239,7 +238,9 @@ class QuadrupedMPC(LeafSystem):
             x[i] = self.prog.NewContinuousVariables(12, "x_" + str(i))
         f = np.zeros((self.N-1, 3*4), dtype="object")
         for i in range(self.N-1):
-            f[i] = self.prog.NewContinuousVariables(3*4, "f_" + str(i))
+            in_contact = np.where(fsm[i, :] == 1)[0] # TODO: eliminate decision variables for feet not in contact
+            for idx in in_contact:
+                f[i, 3 * idx:3 * (idx + 1)] = self.prog.NewContinuousVariables(3, "f_" + str(i) + "_" + str(idx))
         
         print("Adding initial condition constraint...")
         self.add_initial_constraints(x, x_ref)
@@ -251,18 +252,25 @@ class QuadrupedMPC(LeafSystem):
         self.add_cost(x, x_ref, f)
         
         print("Solving...")
-        solver = SnoptSolver()
+        solver = OsqpSolver()
         logfile = "logs/debug.txt"
+        # if logfile exists, delete it
+        if os.path.exists(logfile):
+            os.remove(logfile)
         solver_options = SolverOptions()
         solver_options.SetOption(CommonSolverOption.kPrintFileName, logfile)
         result = solver.Solve(self.prog, solver_options=solver_options)
         infeasible_constraints = result.GetInfeasibleConstraints(self.prog)
-        
+
         for c in infeasible_constraints:
-            print(f"Infeasiable: {c}")
+            print(f"infeasiable: {c}")
+            
+        #with open(logfile, "r") as f:
+        #    print(f.read())
         
         if result.is_success():
             print("Success!")
+            print(result.GetSolution(f))
             return result.GetSolution(f)
         else:
             print("MPC failed to solve")
