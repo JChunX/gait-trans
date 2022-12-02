@@ -15,7 +15,7 @@ from gait_trans.utils import rotation_z_mat, skew
 
 class QuadrupedMPC(LeafSystem):
 
-    def __init__(self, N, dt):
+    def __init__(self, N, dt, Q, R):
         """
         Model-Predictive Control for approximated quadruped
         
@@ -38,16 +38,16 @@ class QuadrupedMPC(LeafSystem):
 
         # inertia tensor of the body
         # approximated as a rectangular prism with dimensions w, l, h
-        self.I_B = np.diag([0.042673, 0.036203, 0.011253])
-        
-        # mass of the body
+        l = 0.7
+        w = 0.3
+        h = 0.2
         self.m = 8.852
-        
+        self.I_B = np.diag([11253, 36203, 42673]) * 1e-6
         self.g = np.zeros((12,))
-        self.g[9:] = np.array([0, 0, -self.m*9.81])
+        self.g[9:] = np.array([0, 0, -9.81 * self.dt])
         
-        self.Q = np.diag([1, 1, 1, 10, 10, 10, 1, 1, 1, 1, 1, 1])
-        self.R = np.eye(12)#1 * np.diag([1, 1, 10, 1, 1, 10, 1, 1, 10, 1, 1, 10])
+        self.Q = Q
+        self.R = R
 
     def discrete_time_dynamics(self, x_ref_k, r_k):
         """
@@ -81,7 +81,7 @@ class QuadrupedMPC(LeafSystem):
         B_k = np.zeros((12, 3 * r_k.shape[0]))
         
         for i in range(r_k.shape[0]):
-            B_k[6:9, 3 * i:3 * (i + 1)] = I_G @ skew(r_k[i, :]) * self.dt
+            B_k[6:9, 3 * i:3 * (i + 1)] = np.linalg.inv(I_G) @ skew(r_k[i, :]) * self.dt
             B_k[9:, 3 * i:3 * (i + 1)] = I3 * self.dt / self.m
         
         return A_k, B_k
@@ -147,16 +147,17 @@ class QuadrupedMPC(LeafSystem):
         
         """
         
-        for i in range(self.N - 1):
+        for i in range(0, self.N - 1):
             in_contact = np.where(fsm[i, :] == 1)[0]
             r_k = r_ref[i, in_contact, :]
             f_k = self.get_fk(in_contact, f[i, :]).flatten()
             x_k = x[i, :]
+            
             x_kp1 = x[i + 1, :]
 
             A_k, B_k = self.discrete_time_dynamics(x_ref[i, :], r_k)
             dyn = A_k @ x_k + B_k @ f_k + self.g - x_kp1
-            
+
             dyn_constraint = self.prog.AddLinearEqualityConstraint(dyn, np.zeros((12,)))
             dyn_constraint.evaluator().set_description("dynamics constraint")
     
@@ -183,12 +184,19 @@ class QuadrupedMPC(LeafSystem):
             
             
             in_contact = np.where(fsm[i, :] == 1)[0]
+            not_in_contact = np.where(fsm[i, :] == 0)[0]
             f_k = self.get_fk(in_contact, f[i, :])
+            f_k_not = self.get_fk(not_in_contact, f[i, :])
 
             num_contacts = len(in_contact)
+            epsilon = 2e-3
             
             for j in range(num_contacts):
-                A = np.array( [[1, 0, -mu], [-1, 0, -mu], [0, 1, -mu], [0, -1, -mu], [0, 0, -1]])
+                A = np.array( [[1, 0, -mu], 
+                               [-1, 0, -mu], 
+                               [0, 1, -mu], 
+                               [0, -1, -mu], 
+                               [0, 0, -1]])
                 f_k_j = f_k[3 * j:3 * (j + 1)]
                 ub = np.array([0, 0, 0, 0, 0])
                 lb = np.array([-np.inf, -np.inf, -np.inf, -np.inf, -np.inf])
@@ -207,7 +215,8 @@ class QuadrupedMPC(LeafSystem):
         
         f - (N-1, 3*4) array of contact forces
         """
-        for i in range(self.N-1):
+
+        for i in range(0, self.N-1):
             x_kp1 = x[i+1, :]
             x_ref_kp1 = x_ref[i+1, :]
             x_dk = x_kp1 - x_ref_kp1
@@ -264,14 +273,10 @@ class QuadrupedMPC(LeafSystem):
 
         for c in infeasible_constraints:
             print(f"infeasiable: {c}")
-            
-        #with open(logfile, "r") as f:
-        #    print(f.read())
         
         if result.is_success():
             print("Success!")
-            print(result.GetSolution(f))
-            return result.GetSolution(f)
+            return (result.GetSolution(f), result.GetSolution(x))
         else:
             print("MPC failed to solve")
             return None

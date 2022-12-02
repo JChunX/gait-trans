@@ -5,10 +5,6 @@ from gait_trans.utils import rotation_z_mat
 g = 9.81
 
 class GaitPlanner:
-    
-    def __init__(self, N, dt, leg_shoulder_pos, body_cmd_vel, omega):
-
-        pass #TODO
 
     def get_foot_positions(p_k, psi_k, l, v=0, v_cmd=0, omega_cmd=0, h=0.5, t_stance=2, k=0.03):
         """
@@ -47,46 +43,67 @@ class GaitPlanner:
             
         return positions
 
-    def gen_body_trajectory(v, omega, dt, N, z=0.5):
+    def gen_body_trajectory(v, omega, dt, x_0, N):
         """
         Generates a body trajectory for a given velocity and angular velocity
         
         input:
         
-        v - x, y body velocity in body frame
+        v - x, y velocity in body frame
         
-        z - body height
-        
-        omega - body angular velocity, scalar
+        omega - body angular velocity (yaw), scalar
         
         dt - time step
         
-        N - number of steps
+        x_0 - initial state, (12,) array
+                
+        N - number of steps to generate
         
         returns:
-        Nx8 trajectory vector: (x, y, z, x_dot, y_dot, z_dot=0, psi, psi_dot=omega)
+        Nx12 trajectory vector: (phi=0, theta=0, psi, 
+                                 x, y, z, 
+                                 phi_dot, theta_dot, psi_dot=omega, 
+                                 x_dot, y_dot, z_dot=0)
         """
+        # TODO: directly fill Nx12 array
         body_trajectory = np.zeros((N, 8))
+        body_trajectory[0, :3] = x_0[3:6]
+        body_trajectory[0, 3:6] = x_0[9:12]
+        body_trajectory[0, 6] = x_0[2]
+        body_trajectory[0, 7] = omega
         rot_mat = rotation_z_mat(omega * dt)
         v = np.append(v, 0)
         for i in range(N):
             if i > 0:
+                # increment body position
                 body_trajectory[i, :3] = rot_mat @ (body_trajectory[i-1, :3] + v * dt)
-            # convert body velocity to world frame
-            body_trajectory[i, 3:6] = rot_mat @ v
+                # compute body velocity via finite difference
+                body_trajectory[i, 3:6] = (body_trajectory[i, :3] - body_trajectory[i-1, :3]) / dt
+            else:
+                body_trajectory[i, 3:6] = v
             body_trajectory[i, 6] = i * omega * dt
             body_trajectory[i, 7] = omega
         
-        body_trajectory[:, 2] = z
-        return body_trajectory
+        body_trajectory[:, 2] = x_0[5]
+        
+        # reformat to (N, 12) array for MPC controller
+        body_trajectory_mpc = np.zeros((N, 12))
+        body_trajectory_mpc[:,:2] = np.zeros((N,2))
+        body_trajectory_mpc[:,2] = body_trajectory[:,6]
+        body_trajectory_mpc[:,3:6] = body_trajectory[:,:3]
+        body_trajectory_mpc[:,6:8] = np.zeros((N,2))
+        body_trajectory_mpc[:,8] = body_trajectory[:,7]
+        body_trajectory_mpc[:,9:12] = body_trajectory[:,3:6]
+        
+        return body_trajectory_mpc
 
-    def gen_foot_positions(body_traj, contact_sequence, leg_shoulder_pos):
+    def gen_foot_positions(body_traj, contact_sequence, leg_shoulder_pos, N):
         """
         Generate foot positions for a given body trajectory
         
         input:
         
-        body_traj - Nx8 body trajectory
+        body_traj - Nx12 body trajectory
         
         contact_sequence - Nx4 contact sequence boolean array
         
@@ -96,7 +113,6 @@ class GaitPlanner:
         
         foot_positions - Nx4x3 foot position array
         """
-        t = 0
         prev_contacts = np.zeros(4)
         foot_positions = np.zeros((N, 4, 3))
 
@@ -108,8 +124,8 @@ class GaitPlanner:
             # get the indices where leg went from in contact to not in contact
             new_out_contact = np.where(np.logical_and(prev_contacts == 1, contacts == 0))[0]
             
-            new_foot_positions = get_foot_positions(body_state[:3], 
-                                                body_state[6], 
+            new_foot_positions = GaitPlanner.get_foot_positions(body_state[3:6], 
+                                                body_state[2], 
                                                 leg_shoulder_pos)
             
             # foot_positions[i] is the prev foot position, unless it just went out of contact
@@ -126,35 +142,48 @@ class ContactScheduler:
     """
     Contact Scheduler assigns contact sequence for next N steps
     """
-    def __init__(self, period, dt):
-        self.period = period
-        self.dt = dt
-        self.phase = 0
-        
-    def make_trot_contact_sequence(self, N, t):
+    
+    trot_params = {
+        "trot_phase_offsets": [0.6, 0.1, 0, 0.5],
+        "stance_fraction": 0.6
+    }
+    
+    def make_trot_contact_sequence(period, t, dt, N, phase_offset=0):
         """
         Makes a trot contact sequence for the next N steps, starting at time t
         
         inputs:
         
         N - number of steps
+        period - gait period
         t - current time
+        dt - time step
+        
+        phase_offset - phase offset for the first step, in [0, 1]
         
         output:
         
         contact_sequence - (N, 4) array, where each row is a contact sequence for a step
+                            1 means in contact, 0 means not in contact
         """
         # trot_phase_offsets are the percentage offset where contact should start
-        trot_phase_offsets = [0.6, 0.1, 0, 0.5]
+        trot_phase_offsets = ContactScheduler.trot_params['trot_phase_offsets']
         contact_sequence = np.zeros((N, 4))
         # t_stance is how long the robot spends in stance
-        t_stance = 0.6 * self.period
+        stance_fraction = ContactScheduler.trot_params['stance_fraction']
+        t_stance = stance_fraction * period
         
         for i in range(N):
-            time = t + i * self.dt
+            time = t + i * dt
             for j in range(4):
-                phase = (time + trot_phase_offsets[j] * self.period) % self.period
+                phase = ContactScheduler.time_to_phase(time, trot_phase_offsets[j], period) + phase_offset
                 if phase < t_stance:
                     contact_sequence[i, j] = 1
                     
         return contact_sequence
+    
+    def time_to_phase(time, offset, period):
+        """
+        Converts time to phase
+        """
+        return (time + offset * period) % period
