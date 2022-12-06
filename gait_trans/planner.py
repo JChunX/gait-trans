@@ -97,7 +97,7 @@ class GaitPlanner:
         
         return body_trajectory_mpc
 
-    def gen_foot_positions(body_traj, contact_sequence, leg_shoulder_pos, N):
+    def gen_foot_positions(body_traj, fsm, leg_shoulder_pos, N, prev_contacts=np.zeros(4)):
         """
         Generate foot positions for a given body trajectory
         
@@ -105,7 +105,7 @@ class GaitPlanner:
         
         body_traj - Nx12 body trajectory
         
-        contact_sequence - Nx4 contact sequence boolean array
+        fsm - Nx4 contact sequence boolean array
         
         leg_shoulder_pos - i_th leg shoulder location wrt body frame, (4,) array
         
@@ -113,20 +113,20 @@ class GaitPlanner:
         
         foot_positions - Nx4x3 foot position array
         """
-        prev_contacts = np.zeros(4)
         foot_positions = np.zeros((N, 4, 3))
 
         for i in range(N-1):
             body_state = body_traj[i]
-            contacts = contact_sequence[i]
+            contacts = fsm[i]
             # get the indices where leg went from not in contact to in contact
             new_in_contact = np.where(np.logical_and(prev_contacts == 0, contacts == 1))[0]
             # get the indices where leg went from in contact to not in contact
             new_out_contact = np.where(np.logical_and(prev_contacts == 1, contacts == 0))[0]
             
-            new_foot_positions = GaitPlanner.get_foot_positions(body_state[3:6], 
-                                                body_state[2], 
-                                                leg_shoulder_pos)
+            new_foot_positions = GaitPlanner.get_foot_positions(
+                body_state[3:6], 
+                body_state[2], 
+                leg_shoulder_pos)
             
             # foot_positions[i] is the prev foot position, unless it just went out of contact
             foot_positions[i] = foot_positions[i-1]
@@ -144,11 +144,19 @@ class ContactScheduler:
     """
     
     trot_params = {
-        "trot_phase_offsets": [0.6, 0.1, 0, 0.5],
+        "phase_offsets": [0.6, 0.1, 0, 0.5],
         "stance_fraction": 0.6
     }
     
-    def make_trot_contact_sequence(period, t, dt, N, phase_offset=0):
+    gallop_params = {
+        "phase_offsets": [0.2, 0.6, 0.4, 0],
+        "stance_fraction": 0.25
+    }
+    
+    param_dict = {"trot": trot_params,
+                  "gallop": gallop_params}
+    
+    def make_fsm(period, t, dt, N, gait_params, phase_offset=0):
         """
         Makes a trot contact sequence for the next N steps, starting at time t
         
@@ -163,24 +171,36 @@ class ContactScheduler:
         
         output:
         
-        contact_sequence - (N, 4) array, where each row is a contact sequence for a step
+        fsm - (N, 4) array, where each row is a contact sequence for a step
                             1 means in contact, 0 means not in contact
         """
         # trot_phase_offsets are the percentage offset where contact should start
-        trot_phase_offsets = ContactScheduler.trot_params['trot_phase_offsets']
-        contact_sequence = np.zeros((N, 4))
+        fsm = np.zeros((N, 4))
+        gait_phase_offsets = gait_params['phase_offsets']
         # t_stance is how long the robot spends in stance
-        stance_fraction = ContactScheduler.trot_params['stance_fraction']
+        stance_fraction = gait_params['stance_fraction']
         t_stance = stance_fraction * period
         
         for i in range(N):
             time = t + i * dt
             for j in range(4):
-                phase = ContactScheduler.time_to_phase(time, trot_phase_offsets[j], period) + phase_offset
+                phase = ContactScheduler.time_to_phase(time, gait_phase_offsets[j], period) + phase_offset
                 if phase < t_stance:
-                    contact_sequence[i, j] = 1
+                    fsm[i, j] = 1
                     
-        return contact_sequence
+        return fsm
+    
+    def make_trot_fsm(period, t, dt, N, phase_offset=0):
+        trot_params = ContactScheduler.trot_params
+        fsm = ContactScheduler.make_fsm(period, t, dt, N, trot_params, phase_offset)
+                    
+        return fsm
+    
+    def make_gallop_fsm(period, t, dt, N, phase_offset=0):
+        gallop_params = ContactScheduler.gallop_params
+        fsm = ContactScheduler.make_fsm(period, t, dt, N, gallop_params, phase_offset)
+        
+        return fsm
     
     def time_to_phase(time, offset, period):
         """

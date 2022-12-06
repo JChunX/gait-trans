@@ -109,3 +109,4 @@ def plot_com_traj(x_ref, x_mpc):
     plt.plot(x_mpc[:,11], label="x_mpc_z_dot")
     plt.ylim(np.mean(x_ref[:,11]) - 2.0, np.mean(x_ref[:,11]) + 2.0)
     plt.legend()
+

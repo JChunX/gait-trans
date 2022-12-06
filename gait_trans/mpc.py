@@ -224,7 +224,7 @@ class QuadrupedMPC(LeafSystem):
             f_k = f[i, :]
             self.prog.AddQuadraticCost(f_k.T @ self.R @ f_k)
             
-    def compute_mpc(self, x_ref, r_ref, fsm):
+    def compute_mpc(self, x_ref, r_ref, fsm, verbose=False):
         """
         Compute the optimal control input
         
@@ -270,15 +270,20 @@ class QuadrupedMPC(LeafSystem):
         solver_options.SetOption(CommonSolverOption.kPrintFileName, logfile)
         result = solver.Solve(self.prog, solver_options=solver_options)
         infeasible_constraints = result.GetInfeasibleConstraints(self.prog)
+        f_mpc = result.GetSolution(f)
+        x_mpc = result.GetSolution(x)
+        f_mpc = np.vectorize(lambda x: x.Evaluate())(f_mpc)
 
-        for c in infeasible_constraints:
-            print(f"infeasiable: {c}")
+        if verbose:
+            for c in infeasible_constraints:
+                print(f"infeasiable: {c}")
         
         if result.is_success():
             print("Success!")
-            return (result.GetSolution(f), result.GetSolution(x))
+            cost = result.get_optimal_cost()
+            return (f_mpc, x_mpc, cost, True)
         else:
             print("MPC failed to solve")
-            return None
+            return (None, None, None, False)
             
             

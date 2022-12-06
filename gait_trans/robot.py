@@ -23,7 +23,7 @@ class Quadruped:
     height = 0.34
     
     speed_to_gait_idx = [0, 1, 2, 3]
-    gait_idx_to_name = ["trot", "bound", "pace", "gallop"]
+    gait_idx_to_name = ["trot", "trot", "gallop", "gallop"]
     gait_to_period = {'trot': 0.6, 'bound': 0.6, 'pace': 0.6, 'gallop': 0.6}
     
     
@@ -43,6 +43,16 @@ class Quadruped:
     
         self.mpc_R = 1 * np.identity(12)
         
+        self.planning_horizon = 20
+        self.prev_contacts = np.zeros(4)
+        
+        self.cur_gait_type = None
+        self.prev_gait_type = None
+        self.mpc_fail_count = 0
+        self.mpc_fail_threshold = 5
+        self.f_mpc_prev = None
+        self.x_mpc_prev = None
+        
     def set_body_cmd_vel(self, body_cmd_vel):
         self.body_cmd_vel = body_cmd_vel
         
@@ -54,25 +64,27 @@ class Quadruped:
         
     def step(self):
         """
-        In each step, the robot should update its current plan and run it controllers to determine the next body state
+        In each step, the robot should update its current plan and run its controllers to determine the next body state
         """
+        print("Generating new plan...")
+        x_ref = GaitPlanner.gen_body_trajectory(self.body_cmd_vel, self.omega, self.sim_data.dt, self.x, self.planning_horizon)
         
-        planning_horizon = 200
-        x_ref = GaitPlanner.gen_body_trajectory(self.body_cmd_vel, self.omega, self.sim_data.dt, self.x, planning_horizon)
-        fsm = self.compute_fsm(planning_horizon)
-        r_ref = GaitPlanner.gen_foot_positions(x_ref, fsm, self.leg_shoulder_pos, planning_horizon)
-        r_ref = r_ref - x_ref[:, np.newaxis, 3:6]
+        print("Finding contact forces...")
+        mpc_time, f_mpc, x_mpc, fsm, r_ref, cost, success = self.find_contact_forces(x_ref)
         
-        t0 = time.time()
-        mpc = QuadrupedMPC(planning_horizon, self.sim_data.dt, self.mpc_Q, self.mpc_R)
-        success = True
-
-        f_mpc, x_mpc = mpc.compute_mpc(x_ref, 
-                                    r_ref[:planning_horizon-1], 
-                                    fsm[:planning_horizon-1])
-        f_mpc = np.vectorize(lambda x: x.Evaluate())(f_mpc)
-        mpc_time = time.time() - t0
-
+        if not success:
+            if self.mpc_fail_count >= self.mpc_fail_threshold:
+                print("MPC failed too many times. Stopping.")
+                return {}
+            self.x_mpc = self.x_mpc_prev[self.mpc_fail_count, :]
+            self.f_mpc = self.f_mpc_prev[self.mpc_fail_count, :]
+            self.mpc_fail_count += 1
+            success = True
+        else:
+            self.mpc_fail_count = 0
+            self.f_mpc_prev = f_mpc
+            self.x_mpc_prev = x_mpc
+            
         self.x = x_mpc[1]
         
         step_dict = {
@@ -85,12 +97,89 @@ class Quadruped:
             "success": success
         }
         
+        # save previous contacts the ensure correct foot placements in next iteration
+        self.prev_contacts = fsm[0]
+        self.prev_gait_type = self.cur_gait_type
+        
         return step_dict
     
-    def compute_fsm(self, planning_horizon):
-        
+    def find_contact_forces(self, x_ref):
+        """
+        Given a reference trajectory, 
+        find the forces that will be applied to the robot's feet to achieve that trajectory
+        """
+        t0 = time.time()
+        self.select_gait()
+        gait_params = ContactScheduler.param_dict[self.cur_gait_type]
+        success = False
+        # gait is transitioning.
+        # we need to vary the fsm phase offsets and compute mpc costs
+        if self.cur_gait_type != self.prev_gait_type:
+            phase_offsets = gait_params["phase_offsets"]
+            # get unique offsets from phase_offsets
+            phase_offsets = np.unique(phase_offsets)
+            best_cost = np.inf
+            best_fsm = None
+            best_r_ref = None
+            best_f_mpc = None
+            best_x_mpc = None
+            for _, offset in enumerate(phase_offsets):
+                gait_params["phase_offsets"] = phase_offsets
+                fsm = ContactScheduler.make_fsm(
+                    self.gait_period, self.sim_data.time, 
+                    self.sim_data.dt, self.planning_horizon, 
+                    gait_params, phase_offset = offset)
+                r_ref = GaitPlanner.gen_foot_positions(
+                    x_ref, fsm, 
+                    self.leg_shoulder_pos, 
+                    self.planning_horizon, 
+                    self.prev_contacts)
+                r_ref = r_ref - x_ref[:, np.newaxis, 3:6]
+                
+                mpc = QuadrupedMPC(self.planning_horizon, 
+                                   self.sim_data.dt, 
+                                   self.mpc_Q, self.mpc_R)
+                f_mpc, x_mpc, cost, success = mpc.compute_mpc(x_ref, 
+                                        r_ref[:self.planning_horizon-1], 
+                                        fsm[:self.planning_horizon-1])
+                print("MPC cost for offset {0}: {1}".format(offset, cost))
+                if success and cost < best_cost:
+                    best_cost = cost
+                    best_fsm = fsm
+                    best_r_ref = r_ref
+                    best_f_mpc = f_mpc
+                    best_x_mpc = x_mpc
+                    
+            f_mpc = best_f_mpc
+            x_mpc = best_x_mpc
+            fsm = best_fsm
+            r_ref = best_r_ref
+            cost = best_cost
+                    
+        else:
+            fsm = ContactScheduler.make_fsm(
+                    self.gait_period, self.sim_data.time, 
+                    self.sim_data.dt, self.planning_horizon, 
+                    gait_params)
+            r_ref = GaitPlanner.gen_foot_positions(
+                x_ref, fsm, 
+                self.leg_shoulder_pos, 
+                self.planning_horizon, self.prev_contacts)
+            r_ref = r_ref - x_ref[:, np.newaxis, 3:6]
+            
+            mpc = QuadrupedMPC(self.planning_horizon, 
+                               self.sim_data.dt, 
+                               self.mpc_Q, self.mpc_R)
+
+            f_mpc, x_mpc, cost, success = mpc.compute_mpc(x_ref, 
+                                        r_ref[:self.planning_horizon-1], 
+                                        fsm[:self.planning_horizon-1])
+        mpc_time = time.time() - t0
+            
+        return mpc_time, f_mpc, x_mpc, fsm, r_ref, cost, success
+    
+    def select_gait(self):
         # use speed_to_gait_idx to get gait type, based on current speed
-        
         speed = np.linalg.norm(self.body_cmd_vel)
         gait_idx = 0
         for i in range(len(self.speed_to_gait_idx)):
@@ -99,13 +188,5 @@ class Quadruped:
             else:
                 break
             
-        gait_name = self.gait_idx_to_name[gait_idx]
-        
-        if gait_name == "trot":
-            pass # TODO: more gaits
-        
-        fsm = ContactScheduler.make_trot_contact_sequence(self.gait_period, self.sim_data.time, self.sim_data.dt, planning_horizon)
-        
-        return fsm
-
-            
+        self.cur_gait_type = self.gait_idx_to_name[gait_idx]
+        print("Selected gait: {0}".format(self.cur_gait_type))
