@@ -18,6 +18,11 @@ def skew(x):
                      [x[2], 0, -x[0]],
                      [-x[1], x[0], 0]])
     
+def plot_fsm(fsm):
+    N = fsm.shape[0]
+    plt.figure(figsize=(N/2, 5))
+    plt.imshow(fsm.T)
+    
 def plot_contact_forces(force):
     
     N = force.shape[0]
@@ -25,6 +30,13 @@ def plot_contact_forces(force):
     print(force[:5])
     plt.figure(figsize=(N/2, 5))
     plt.imshow(force.T)
+    
+def plot_mpc_solve_time(solve_times):
+    plt.figure(figsize=(20,5))
+    plt.plot(solve_times)
+    plt.xlabel("time step")
+    plt.ylabel("solve time (s))")
+    plt.title("MPC solve time")
 
 def plot_com_traj(x_ref, x_mpc):
     """
@@ -64,17 +76,15 @@ def plot_com_traj(x_ref, x_mpc):
     plt.legend()
     plt.subplot(4,3,4)
     plt.plot(x_mpc[:,3] - x_ref[:,3], label="x_error")
-    plt.ylim(-2.0, 2.0)
+    plt.ylim(-0.5, 0.5)
     plt.legend()
     plt.subplot(4,3,5)
-    plt.plot(x_ref[:,4], label="x_ref_y")
-    plt.plot(x_mpc[:,4], label="x_mpc_y")
-    plt.ylim(np.mean(x_ref[:,4]) - 2.0, np.mean(x_ref[:,4]) + 2.0)
+    plt.plot(x_ref[:,4] - x_mpc[:,4], label="y_error")
+    plt.ylim(-0.5, 0.5)
     plt.legend()
     plt.subplot(4,3,6)
-    plt.plot(x_ref[:,5], label="x_ref_z")
-    plt.plot(x_mpc[:,5], label="x_mpc_z")
-    plt.ylim(np.mean(x_ref[:,5]) - 0.5, np.mean(x_ref[:,5]) + 0.5)
+    plt.plot(x_ref[:,5] - x_mpc[:,5], label="z_error")
+    plt.ylim(-0.2, 0.2)
     plt.legend()
     plt.subplot(4,3,7)
     plt.plot(x_ref[:,6], label="x_ref_phi_dot")
@@ -110,3 +120,28 @@ def plot_com_traj(x_ref, x_mpc):
     plt.ylim(np.mean(x_ref[:,11]) - 2.0, np.mean(x_ref[:,11]) + 2.0)
     plt.legend()
 
+class SimulationResults:
+    
+    def __init__(self, results):
+        self.results = results
+        self.parse_results()
+        
+    def parse_results(self):
+        N = len(self.results)
+        self.iter_times = []
+        self.f_mpc = np.zeros((N, 12))
+        self.x_mpc = np.zeros((N, 12))
+        self.x_ref = np.zeros((N, 12))
+        self.fsm = np.zeros((N, 4))
+        self.r_ref = np.zeros((N, 4, 3))
+        self.mpc_success = []
+        
+        for i, result_dict in enumerate(self.results):
+            self.iter_times.append(result_dict["iter_time"])
+            self.f_mpc[i,:] = result_dict["f_mpc"][0]
+            self.x_mpc[i,:] = result_dict["x_mpc"][0]
+            self.x_ref[i,:] = result_dict["x_ref"][0]
+            self.fsm[i,:] = result_dict["fsm"][0]
+            self.r_ref[i,:,:] = result_dict["r_ref"][0]
+            self.mpc_success.append(result_dict["success"])
+            

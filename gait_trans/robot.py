@@ -43,7 +43,7 @@ class Quadruped:
     
         self.mpc_R = 1 * np.identity(12)
         
-        self.planning_horizon = 20
+        self.planning_horizon = 100
         self.prev_contacts = np.zeros(4)
         
         self.cur_gait_type = None
@@ -115,16 +115,12 @@ class Quadruped:
         # gait is transitioning.
         # we need to vary the fsm phase offsets and compute mpc costs
         if self.cur_gait_type != self.prev_gait_type:
-            phase_offsets = gait_params["phase_offsets"]
-            # get unique offsets from phase_offsets
-            phase_offsets = np.unique(phase_offsets)
             best_cost = np.inf
             best_fsm = None
             best_r_ref = None
             best_f_mpc = None
             best_x_mpc = None
-            for _, offset in enumerate(phase_offsets):
-                gait_params["phase_offsets"] = phase_offsets
+            for _, offset in enumerate(np.unique(gait_params["gait_phase_offsets"])):
                 fsm = ContactScheduler.make_fsm(
                     self.gait_period, self.sim_data.time, 
                     self.sim_data.dt, self.planning_horizon, 

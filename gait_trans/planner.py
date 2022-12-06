@@ -81,7 +81,7 @@ class GaitPlanner:
                 body_trajectory[i, 3:6] = (body_trajectory[i, :3] - body_trajectory[i-1, :3]) / dt
             else:
                 body_trajectory[i, 3:6] = v
-            body_trajectory[i, 6] = i * omega * dt
+            body_trajectory[i, 6] = body_trajectory[i-1, 6] + omega * dt
             body_trajectory[i, 7] = omega
         
         body_trajectory[:, 2] = x_0[5]
@@ -144,12 +144,12 @@ class ContactScheduler:
     """
     
     trot_params = {
-        "phase_offsets": [0.6, 0.1, 0, 0.5],
+        "gait_phase_offsets": [0.5, 0.0, 0.0, 0.5],
         "stance_fraction": 0.6
     }
     
     gallop_params = {
-        "phase_offsets": [0.2, 0.6, 0.4, 0],
+        "gait_phase_offsets": [0.2, 0.6, 0.4, 0.0],
         "stance_fraction": 0.25
     }
     
@@ -176,34 +176,24 @@ class ContactScheduler:
         """
         # trot_phase_offsets are the percentage offset where contact should start
         fsm = np.zeros((N, 4))
-        gait_phase_offsets = gait_params['phase_offsets']
+        gait_phase_offsets = gait_params["gait_phase_offsets"]
         # t_stance is how long the robot spends in stance
         stance_fraction = gait_params['stance_fraction']
-        t_stance = stance_fraction * period
-        
+
+        print("time", t)
         for i in range(N):
             time = t + i * dt
             for j in range(4):
-                phase = ContactScheduler.time_to_phase(time, gait_phase_offsets[j], period) + phase_offset
-                if phase < t_stance:
+                phase = ContactScheduler.time_to_phase(time, gait_phase_offsets[j] + phase_offset, period)
+                if phase < stance_fraction:
                     fsm[i, j] = 1
-                    
-        return fsm
-    
-    def make_trot_fsm(period, t, dt, N, phase_offset=0):
-        trot_params = ContactScheduler.trot_params
-        fsm = ContactScheduler.make_fsm(period, t, dt, N, trot_params, phase_offset)
-                    
-        return fsm
-    
-    def make_gallop_fsm(period, t, dt, N, phase_offset=0):
-        gallop_params = ContactScheduler.gallop_params
-        fsm = ContactScheduler.make_fsm(period, t, dt, N, gallop_params, phase_offset)
-        
+                if i == 0:
+                    print("phase", phase)
+            
         return fsm
     
     def time_to_phase(time, offset, period):
         """
         Converts time to phase
         """
-        return (time + offset * period) % period
+        return ((time % period) / period + offset) % 1

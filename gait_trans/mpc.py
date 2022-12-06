@@ -247,7 +247,7 @@ class QuadrupedMPC(LeafSystem):
             x[i] = self.prog.NewContinuousVariables(12, "x_" + str(i))
         f = np.zeros((self.N-1, 3*4), dtype="object")
         for i in range(self.N-1):
-            in_contact = np.where(fsm[i, :] == 1)[0] # TODO: eliminate decision variables for feet not in contact
+            in_contact = np.where(fsm[i, :] == 1)[0]
             for idx in in_contact:
                 f[i, 3 * idx:3 * (idx + 1)] = self.prog.NewContinuousVariables(3, "f_" + str(i) + "_" + str(idx))
         
