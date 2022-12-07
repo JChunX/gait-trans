@@ -180,15 +180,12 @@ class ContactScheduler:
         # t_stance is how long the robot spends in stance
         stance_fraction = gait_params['stance_fraction']
 
-        print("time", t)
         for i in range(N):
             time = t + i * dt
             for j in range(4):
                 phase = ContactScheduler.time_to_phase(time, gait_phase_offsets[j] + phase_offset, period)
                 if phase < stance_fraction:
                     fsm[i, j] = 1
-                if i == 0:
-                    print("phase", phase)
             
         return fsm
     

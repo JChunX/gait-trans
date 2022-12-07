@@ -232,7 +232,7 @@ class QuadrupedMPC(LeafSystem):
         
         x_ref - (N, 12) array of reference body states
         
-        r_ref - (N-1, 4, 3) array of reference foot positions
+        r_ref - (N-1, 4, 3) array of reference foot positions wrt body
         
         fsm - (N-1, 4) array of contact sequences
         
@@ -240,7 +240,8 @@ class QuadrupedMPC(LeafSystem):
         
         u - (N, 3*4) array of contact forces
         """
-        print("Computing MPC...")
+        if verbose:
+            print("Computing MPC...")
         self.prog = MathematicalProgram()
         x = np.zeros((self.N, 12), dtype="object")
         for i in range(self.N):
@@ -250,17 +251,19 @@ class QuadrupedMPC(LeafSystem):
             in_contact = np.where(fsm[i, :] == 1)[0]
             for idx in in_contact:
                 f[i, 3 * idx:3 * (idx + 1)] = self.prog.NewContinuousVariables(3, "f_" + str(i) + "_" + str(idx))
-        
-        print("Adding initial condition constraint...")
+        if verbose:
+            print("Adding initial condition constraint...")
         self.add_initial_constraints(x, x_ref)
-        print("Adding dynamic constraints...")
+        if verbose:
+            print("Adding dynamic constraints...")
         self.add_dynamic_constraints(x, f, x_ref, r_ref, fsm)
-        print("Adding contact constraints...")
+        if verbose:
+            print("Adding contact constraints...")
         self.add_contact_constraints(f, fsm)
         
         self.add_cost(x, x_ref, f)
-        
-        print("Solving...")
+        if verbose:
+            print("Solving...")
         solver = OsqpSolver()
         logfile = "logs/debug.txt"
         # if logfile exists, delete it
@@ -279,11 +282,13 @@ class QuadrupedMPC(LeafSystem):
                 print(f"infeasiable: {c}")
         
         if result.is_success():
-            print("Success!")
+            if verbose:
+                print("Success!")
             cost = result.get_optimal_cost()
             return (f_mpc, x_mpc, cost, True)
         else:
-            print("MPC failed to solve")
+            if verbose:
+                print("MPC failed to solve")
             return (None, None, None, False)
             
             

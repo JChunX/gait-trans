@@ -35,7 +35,7 @@ class Quadruped:
         self.gait_period = 0.6
         self.sim_data = sim_data
         
-        self.mpc_Q =  1000 * np.diag(
+        self.mpc_Q =  10000 * np.diag(
             [1,   1,   1,
              1,   1,   1,
              20,  5,   5,
@@ -43,7 +43,7 @@ class Quadruped:
     
         self.mpc_R = 1 * np.identity(12)
         
-        self.planning_horizon = 100
+        self.planning_horizon = 50
         self.prev_contacts = np.zeros(4)
         
         self.cur_gait_type = None
@@ -66,10 +66,9 @@ class Quadruped:
         """
         In each step, the robot should update its current plan and run its controllers to determine the next body state
         """
-        print("Generating new plan...")
+
         x_ref = GaitPlanner.gen_body_trajectory(self.body_cmd_vel, self.omega, self.sim_data.dt, self.x, self.planning_horizon)
-        
-        print("Finding contact forces...")
+
         mpc_time, f_mpc, x_mpc, fsm, r_ref, cost, success = self.find_contact_forces(x_ref)
         
         if not success:
@@ -120,6 +119,7 @@ class Quadruped:
             best_r_ref = None
             best_f_mpc = None
             best_x_mpc = None
+            best_offset = None
             for _, offset in enumerate(np.unique(gait_params["gait_phase_offsets"])):
                 fsm = ContactScheduler.make_fsm(
                     self.gait_period, self.sim_data.time, 
@@ -145,18 +145,20 @@ class Quadruped:
                     best_r_ref = r_ref
                     best_f_mpc = f_mpc
                     best_x_mpc = x_mpc
+                    best_offset = offset
                     
             f_mpc = best_f_mpc
             x_mpc = best_x_mpc
             fsm = best_fsm
             r_ref = best_r_ref
             cost = best_cost
+            self.gait_phase_offset = best_offset
                     
         else:
             fsm = ContactScheduler.make_fsm(
                     self.gait_period, self.sim_data.time, 
                     self.sim_data.dt, self.planning_horizon, 
-                    gait_params)
+                    gait_params, phase_offset=self.gait_phase_offset)
             r_ref = GaitPlanner.gen_foot_positions(
                 x_ref, fsm, 
                 self.leg_shoulder_pos, 

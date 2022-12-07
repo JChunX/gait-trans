@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-
+from scipy.spatial import ConvexHull
 
 def rotation_z_mat(psi_k):
     """
@@ -26,8 +26,9 @@ def plot_fsm(fsm):
 def plot_contact_forces(force):
     
     N = force.shape[0]
+    # keep every 3rd column
+    force = force[:, ::3]
     #force = force.T.astype(np.uint8)
-    print(force[:5])
     plt.figure(figsize=(N/2, 5))
     plt.imshow(force.T)
     
@@ -119,7 +120,35 @@ def plot_com_traj(x_ref, x_mpc):
     plt.plot(x_mpc[:,11], label="x_mpc_z_dot")
     plt.ylim(np.mean(x_ref[:,11]) - 2.0, np.mean(x_ref[:,11]) + 2.0)
     plt.legend()
-
+    
+def plot_footstep_locations(results, step_num):
+    """Plot the footstep locations, for each iteration of the MPC"""
+    r_ref = results["r_ref"]
+    x_ref = results["x_ref"]
+    fsm = results["fsm"]
+    r_world =  r_ref + x_ref[:, np.newaxis, 3:6]
+    fig = plt.figure()
+    plt.plot(x_ref[:,3], x_ref[:,4], label="x_ref")
+    plt.axis("equal")
+    
+    colors = ['r', 'g', 'b', 'k']
+    i=0
+    contacts = fsm[0]
+    for j in range(4):
+        if contacts[j]:
+            plt.plot(r_world[i, j, 0], r_world[i, j, 1], 'o', color=colors[j])
+            
+    # draw the convex hull of foot positions in contact, if number of contacts > 2
+    if np.sum(contacts) > 2:
+        hull = ConvexHull(r_world[i, contacts == 1, :2])
+        for simplex in hull.simplices:
+            plt.plot(r_world[i, contacts == 1, 0][simplex], r_world[i, contacts == 1, 1][simplex], 'k-')
+            
+    # save figure to image
+    fig.savefig('gait_trans/notebook_outputs/frame_{}.png'.format(step_num))    
+    plt.close(fig)   
+    
+    
 class SimulationResults:
     
     def __init__(self, results):
