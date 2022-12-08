@@ -23,8 +23,8 @@ class Quadruped:
     height = 0.34
     
     speed_to_gait_idx = [0, 1, 2, 3]
-    gait_idx_to_name = ["trot", "trot", "gallop", "gallop"]
-    gait_to_period = {'trot': 0.6, 'bound': 0.6, 'pace': 0.6, 'gallop': 0.6}
+    gait_idx_to_name = ["trot", "trot", "gallop", "bound"]
+    gait_to_period = {'trot': 0.4, 'bound': 0.3, 'pace': 0.4, 'gallop': 0.3}
     
     
     def __init__(self, sim_data):
@@ -41,9 +41,18 @@ class Quadruped:
              20,  5,   5,
              100, 100, 100])
     
-        self.mpc_R = 1 * np.identity(12)
+        #self.mpc_R = 1 * np.identity(12)
         
-        self.planning_horizon = 50
+        # trot R
+        #self.mpc_R = np.diag([1,1,100,
+        #                      1,1,100,
+        #                      1,1,1,
+        #                      1,1,1])
+        self.mpc_R = np.diag([1,1,100,
+                              1,1,100,
+                              1,1,100,
+                              1,1,100])
+        self.planning_horizon = 15
         self.prev_contacts = np.zeros(4)
         
         self.cur_gait_type = None
@@ -52,6 +61,7 @@ class Quadruped:
         self.mpc_fail_threshold = 5
         self.f_mpc_prev = None
         self.x_mpc_prev = None
+        self.r_ref_prev_global = None
         
     def set_body_cmd_vel(self, body_cmd_vel):
         self.body_cmd_vel = body_cmd_vel
@@ -66,7 +76,7 @@ class Quadruped:
         """
         In each step, the robot should update its current plan and run its controllers to determine the next body state
         """
-
+        self.select_gait()
         x_ref = GaitPlanner.gen_body_trajectory(self.body_cmd_vel, self.omega, self.sim_data.dt, self.x, self.planning_horizon)
 
         mpc_time, f_mpc, x_mpc, fsm, r_ref, cost, success = self.find_contact_forces(x_ref)
@@ -108,7 +118,6 @@ class Quadruped:
         find the forces that will be applied to the robot's feet to achieve that trajectory
         """
         t0 = time.time()
-        self.select_gait()
         gait_params = ContactScheduler.param_dict[self.cur_gait_type]
         success = False
         # gait is transitioning.
@@ -129,7 +138,8 @@ class Quadruped:
                     x_ref, fsm, 
                     self.leg_shoulder_pos, 
                     self.planning_horizon, 
-                    self.prev_contacts)
+                    self.prev_contacts, self.r_ref_prev_global)
+                self.r_ref_prev_global = r_ref[0]
                 r_ref = r_ref - x_ref[:, np.newaxis, 3:6]
                 
                 mpc = QuadrupedMPC(self.planning_horizon, 
@@ -162,7 +172,9 @@ class Quadruped:
             r_ref = GaitPlanner.gen_foot_positions(
                 x_ref, fsm, 
                 self.leg_shoulder_pos, 
-                self.planning_horizon, self.prev_contacts)
+                self.planning_horizon, self.prev_contacts,
+                self.r_ref_prev_global)
+            self.r_ref_prev_global = r_ref[0]
             r_ref = r_ref - x_ref[:, np.newaxis, 3:6]
             
             mpc = QuadrupedMPC(self.planning_horizon, 
@@ -187,4 +199,5 @@ class Quadruped:
                 break
             
         self.cur_gait_type = self.gait_idx_to_name[gait_idx]
-        print("Selected gait: {0}".format(self.cur_gait_type))
+        self.gait_period = Quadruped.gait_to_period[self.cur_gait_type]
+        #self.planning_horizon = int(self.gait_period / self.sim_data.dt)

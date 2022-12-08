@@ -97,7 +97,7 @@ class GaitPlanner:
         
         return body_trajectory_mpc
 
-    def gen_foot_positions(body_traj, fsm, leg_shoulder_pos, N, prev_contacts=np.zeros(4)):
+    def gen_foot_positions(body_traj, fsm, leg_shoulder_pos, N, prev_contacts=np.zeros(4), r_ref_prev=np.zeros((4,3))):
         """
         Generate foot positions for a given body trajectory
         
@@ -111,7 +111,7 @@ class GaitPlanner:
         
         returns:
         
-        foot_positions - Nx4x3 foot position array
+        foot_positions - Nx4x3 foot position array in global frame
         """
         foot_positions = np.zeros((N, 4, 3))
 
@@ -129,7 +129,12 @@ class GaitPlanner:
                 leg_shoulder_pos)
             
             # foot_positions[i] is the prev foot position, unless it just went out of contact
-            foot_positions[i] = foot_positions[i-1]
+            # Adding intial condition to foot_positions
+            if i==0:
+                
+                foot_positions[i] = r_ref_prev
+            else:
+                foot_positions[i] = foot_positions[i-1]
             for j in new_in_contact:
                 foot_positions[i, j] = new_foot_positions[j]
             
@@ -153,8 +158,14 @@ class ContactScheduler:
         "stance_fraction": 0.25
     }
     
+    bound_params = {
+        "gait_phase_offsets": [0.0, 0.0, 0.35, 0.35],
+        "stance_fraction": 0.25
+    }
+    
     param_dict = {"trot": trot_params,
-                  "gallop": gallop_params}
+                  "gallop": gallop_params,
+                  "bound": bound_params}
     
     def make_fsm(period, t, dt, N, gait_params, phase_offset=0):
         """

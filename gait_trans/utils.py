@@ -27,7 +27,7 @@ def plot_contact_forces(force):
     
     N = force.shape[0]
     # keep every 3rd column
-    force = force[:, ::3]
+    #force = force[:, 2::3]
     #force = force.T.astype(np.uint8)
     plt.figure(figsize=(N/2, 5))
     plt.imshow(force.T)
