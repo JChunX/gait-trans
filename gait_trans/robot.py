@@ -133,6 +133,8 @@ class Quadruped:
             best_f_mpc = None
             best_x_mpc = None
             best_offset = None
+            self.planning_horizon = self.planning_horizon // 3
+            x_ref = x_ref[:self.planning_horizon, :]
             for _, offset in enumerate(np.unique(gait_params["gait_phase_offsets"])):
                 fsm = ContactScheduler.make_fsm(
                     self.gait_period, self.sim_data.time, 
@@ -167,7 +169,7 @@ class Quadruped:
             r_ref = best_r_ref
             cost = best_cost
             self.gait_phase_offset = best_offset
-                    
+            self.planning_horizon = self.planning_horizon * 3     
         else:
             fsm = ContactScheduler.make_fsm(
                     self.gait_period, self.sim_data.time, 
