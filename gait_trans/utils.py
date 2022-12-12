@@ -20,8 +20,13 @@ def skew(x):
     
 def plot_fsm(fsm):
     N = fsm.shape[0]
-    plt.figure(figsize=(N/2, 5))
+    plt.figure(figsize=(N/4, 10))
     plt.imshow(fsm.T)
+    # label y axis. from bottom to top it should be [FR, FL, BR, BL]
+    plt.yticks(np.arange(4), ["BL", "BR", "FL", "FR"])
+    plt.xlabel("time step")
+    plt.ylabel("leg")
+    plt.title("Finite State Machine")
     
 def plot_contact_forces(force):
     
@@ -29,8 +34,13 @@ def plot_contact_forces(force):
     # keep every 3rd column
     #force = force[:, 2::3]
     #force = force.T.astype(np.uint8)
-    plt.figure(figsize=(N/2, 5))
+    plt.figure(figsize=(N/4, 10))
     plt.imshow(force.T)
+    # add colorbar but make it shorter
+    plt.colorbar(shrink=0.2)
+    plt.xlabel("time step")
+    plt.ylabel("leg")
+    plt.title("Contact forces")
     
 def plot_mpc_solve_time(solve_times):
     plt.figure(figsize=(20,5))
@@ -39,7 +49,7 @@ def plot_mpc_solve_time(solve_times):
     plt.ylabel("solve time (s))")
     plt.title("MPC solve time")
 
-def plot_com_traj(x_ref, x_mpc):
+def plot_com_traj(x_ref, x_mpc, new_fig=True, label_postfix="", dt=1):
     """
     Plots the center of mass trajectory for the reference and the MPC solution
     
@@ -53,72 +63,99 @@ def plot_com_traj(x_ref, x_mpc):
     x is organized as: [phi, theta, psi, x, y, z, phi_dot, theta_dot, psi_dot, x_dot, y_dot, z_dot]
     
     """
-    
-    plt.figure(figsize=(20,15))
+    if new_fig:
+        plt.figure(figsize=(20,15))
+        
+    N = x_ref.shape[0]
+    t = np.arange(N) * dt
     plt.subplot(4,3,1)
-    plt.plot(x_ref[:,0], label="x_ref_phi")
-    plt.plot(x_mpc[:,0], label="x_mpc_phi")
+    plt.plot(t, x_ref[:,0], label="x_ref_phi {}".format(label_postfix))
+    plt.plot(t, x_mpc[:,0], label="x_mpc_phi {}".format(label_postfix))
     # set y scale to be between -pi and pi
     plt.ylim(-np.pi, np.pi)
     # but set tiks to degrees
     plt.yticks(np.arange(-np.pi, np.pi, np.pi/2), np.arange(-180, 180, 90))
+    plt.xlabel("time (s)")
+    plt.ylabel("angle (deg)")
     plt.legend()
     plt.subplot(4,3,2)
-    plt.plot(x_ref[:,1], label="x_ref_theta")
-    plt.plot(x_mpc[:,1], label="x_mpc_theta")
+    plt.plot(t, x_ref[:,1], label="x_ref_theta".format(label_postfix))
+    plt.plot(t, x_mpc[:,1], label="x_mpc_theta".format(label_postfix))
     plt.ylim(-np.pi, np.pi)
     plt.yticks(np.arange(-np.pi, np.pi, np.pi/2), np.arange(-180, 180, 90))
+    plt.xlabel("time (s)")
+    plt.ylabel("angle (deg)")
     plt.legend()
     plt.subplot(4,3,3)
-    plt.plot(x_ref[:,2], label="x_ref_psi")
-    plt.plot(x_mpc[:,2], label="x_mpc_psi")
+    plt.plot(t, x_ref[:,2], label="x_ref_psi".format(label_postfix))
+    plt.plot(t, x_mpc[:,2], label="x_mpc_psi".format(label_postfix))
     plt.ylim(np.mean(x_ref[:,2]) - np.pi, np.mean(x_ref[:,2]) + np.pi)
     plt.yticks(np.arange(-np.pi, np.pi, np.pi/2), np.arange(-180, 180, 90))
+    plt.xlabel("time (s)")
+    plt.ylabel("angle (deg)")
     plt.legend()
     plt.subplot(4,3,4)
-    plt.plot(x_mpc[:,3] - x_ref[:,3], label="x_error")
+    plt.plot(t, x_mpc[:,3] - x_ref[:,3], label="x_error {}".format(label_postfix))
     plt.ylim(-0.5, 0.5)
     plt.legend()
+    plt.xlabel("time (s)")
+    plt.ylabel("error (m)")
     plt.subplot(4,3,5)
-    plt.plot(x_ref[:,4] - x_mpc[:,4], label="y_error")
+    plt.plot(t, x_ref[:,4] - x_mpc[:,4], label="y_error {}".format(label_postfix))
     plt.ylim(-0.5, 0.5)
+    plt.xlabel("time (s)")
+    plt.ylabel("error (m)")
     plt.legend()
     plt.subplot(4,3,6)
-    plt.plot(x_ref[:,5] - x_mpc[:,5], label="z_error")
+    plt.plot(t, x_ref[:,5] - x_mpc[:,5], label="z_error {}".format(label_postfix))
     plt.ylim(-0.2, 0.2)
+    plt.xlabel("time (s)")
+    plt.ylabel("error (m)")
     plt.legend()
     plt.subplot(4,3,7)
-    plt.plot(x_ref[:,6], label="x_ref_phi_dot")
-    plt.plot(x_mpc[:,6], label="x_mpc_phi_dot")
+    plt.plot(t, x_ref[:,6], label="x_ref_phi_dot {}".format(label_postfix))
+    plt.plot(t, x_mpc[:,6], label="x_mpc_phi_dot {}".format(label_postfix))
     plt.ylim(-np.pi, np.pi)
     plt.yticks(np.arange(-np.pi, np.pi, np.pi/2), np.arange(-180, 180, 90))
+    plt.xlabel("time (s)")
+    plt.ylabel("angular velocity (deg/s)")
     plt.legend()
     plt.subplot(4,3,8)
-    plt.plot(x_ref[:,7], label="x_ref_theta_dot")
-    plt.plot(x_mpc[:,7], label="x_mpc_theta_dot")
+    plt.plot(t, x_ref[:,7], label="x_ref_theta_dot {}".format(label_postfix))
+    plt.plot(t, x_mpc[:,7], label="x_mpc_theta_dot {}".format(label_postfix))
     plt.ylim(-np.pi, np.pi)
     plt.yticks(np.arange(-np.pi, np.pi, np.pi/2), np.arange(-180, 180, 90))
+    plt.xlabel("time (s)")
+    plt.ylabel("angular velocity (deg/s)")
     plt.legend()
     plt.subplot(4,3,9)
-    plt.plot(x_ref[:,8], label="x_ref_psi_dot")
-    plt.plot(x_mpc[:,8], label="x_mpc_psi_dot")
+    plt.plot(t, x_ref[:,8], label="x_ref_psi_dot {}".format(label_postfix))
+    plt.plot(t, x_mpc[:,8], label="x_mpc_psi_dot {}".format(label_postfix))
     plt.ylim(-np.pi, np.pi)
     plt.yticks(np.arange(-np.pi, np.pi, np.pi/2), np.arange(-180, 180, 90))
+    plt.xlabel("time (s)")
+    plt.ylabel("angular velocity (deg/s)")
     plt.legend()
     plt.subplot(4,3,10)
-    plt.plot(x_ref[:,9], label="x_ref_x_dot")
-    plt.plot(x_mpc[:,9], label="x_mpc_x_dot")
+    plt.plot(t, x_ref[:,9], label="x_ref_x_dot {}".format(label_postfix))
+    plt.plot(t, x_mpc[:,9], label="x_mpc_x_dot {}".format(label_postfix))
     plt.ylim(np.mean(x_ref[:,9]) - 2.0, np.mean(x_ref[:,9]) + 2.0)
+    plt.xlabel("time (s)")
+    plt.ylabel("velocity (m/s)")
     plt.legend()
     plt.subplot(4,3,11)
-    plt.plot(x_ref[:,10], label="x_ref_y_dot")
-    plt.plot(x_mpc[:,10], label="x_mpc_y_dot")
+    plt.plot(t, x_ref[:,10], label="x_ref_y_dot {}".format(label_postfix))
+    plt.plot(t, x_mpc[:,10], label="x_mpc_y_dot {}".format(label_postfix))
     plt.ylim(np.mean(x_ref[:,10]) - 2.0, np.mean(x_ref[:,10]) + 2.0)
+    plt.xlabel("time (s)")
+    plt.ylabel("velocity (m/s)")
     plt.legend()
     plt.subplot(4,3,12)
-    plt.plot(x_ref[:,11], label="x_ref_z_dot")
-    plt.plot(x_mpc[:,11], label="x_mpc_z_dot")
+    plt.plot(t, x_ref[:,11], label="x_ref_z_dot {}".format(label_postfix))
+    plt.plot(t, x_mpc[:,11], label="x_mpc_z_dot {}".format(label_postfix))
     plt.ylim(np.mean(x_ref[:,11]) - 2.0, np.mean(x_ref[:,11]) + 2.0)
+    plt.xlabel("time (s)")
+    plt.ylabel("velocity (m/s)")
     plt.legend()
     
 def plot_footstep_locations(results, step_num):

@@ -26,6 +26,10 @@ class Quadruped:
     gait_idx_to_name = ["trot", "trot", "gallop", "bound"]
     gait_to_period = {'trot': 0.4, 'bound': 0.3, 'pace': 0.4, 'gallop': 0.3}
     
+    @staticmethod
+    def modify_gait_period(gait_type, period):
+        Quadruped.gait_to_period[gait_type] = period
+    
     
     def __init__(self, sim_data):
         self.body_cmd_vel = np.array([0,0])
@@ -48,11 +52,11 @@ class Quadruped:
         #                      1,1,100,
         #                      1,1,1,
         #                      1,1,1])
-        self.mpc_R = np.diag([1,1,100,
-                              1,1,100,
-                              1,1,100,
-                              1,1,100])
-        self.planning_horizon = 15
+        self.mpc_R = np.diag([1,1,10,
+                              1,1,10,
+                              1,1,10,
+                              1,1,10])
+        self.planning_horizon = 20
         self.prev_contacts = np.zeros(4)
         
         self.cur_gait_type = None
@@ -123,7 +127,7 @@ class Quadruped:
         # gait is transitioning.
         # we need to vary the fsm phase offsets and compute mpc costs
         if self.cur_gait_type != self.prev_gait_type:
-            best_cost = np.inf
+            best_cost = np.inf 
             best_fsm = None
             best_r_ref = None
             best_f_mpc = None
@@ -201,3 +205,4 @@ class Quadruped:
         self.cur_gait_type = self.gait_idx_to_name[gait_idx]
         self.gait_period = Quadruped.gait_to_period[self.cur_gait_type]
         #self.planning_horizon = int(self.gait_period / self.sim_data.dt)
+        

@@ -9,19 +9,19 @@ from gait_trans.simulator import SimulationData, SimulationStreamer, Simulator
 from gait_trans.utils import *
 from gait_trans.videowriter import make_video
 
-dt=0.04
-n_steps = int(1/dt * 10)
+dt=0.01
+n_steps = int(1/dt * 1.2)
 
-state_dict = {0: [1.5, 0.0, np.deg2rad(0)], 
-              int(1/dt * 5): [2.5, 0.0, np.deg2rad(0)],
-              int(1/dt * 7): [3.2, 0.0, np.deg2rad(0)]}
+#state_dict = {0: [1.5, 0.0, np.deg2rad(0)], 
+#              int(1/dt * 1.5): [3.1, 0.0, np.deg2rad(0)]}
 
-#state_dict = {0: [3, 0.0, np.deg2rad(0)]}
+state_dict = {0: [1.5, 0.0, np.deg2rad(0)],
+              int(1/dt * 0.6): [2.5, 0.0, np.deg2rad(0)]}
 
 results_raw = []
 
 def main():
-    skips = 6
+    
     sim_data = SimulationData(dt)
     sim_stream = SimulationStreamer(state_dict)
     sim = Simulator(sim_data)
@@ -42,24 +42,14 @@ def main():
     plot_mpc_solve_time(sim_results.iter_times)
     plot_fsm(sim_results.fsm)
     
-    
-    
-    for i in range(int(n_steps / skips)):
+    #for i in range(1):#int(n_steps / skips)):
         #plot_com_traj(results_raw[i]["x_ref"], results_raw[i]["x_mpc"])
         #plot_contact_forces(results_raw[i]["f_mpc"])
         #plot_fsm(results_raw[i]["fsm"])
-        plot_footstep_locations(results_raw[i], i * skips)
-
-    
-    # glob all pngs from gait_trans/notebook_outputs
-    frame_dirs = glob.glob("gait_trans/notebook_outputs/*.png")
-    frames = []
-    for frame_dir in frame_dirs:
-        frames.append(cv2.imread(frame_dir))
-
-    make_video("out.mp4", frames, fps=int((1/dt) / skips))
+        #plot_footstep_locations(results_raw[i], i * skips)
     
     plt.show()
+
 
 if __name__ == "__main__":
     main()

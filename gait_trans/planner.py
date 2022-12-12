@@ -6,6 +6,7 @@ g = 9.81
 
 class GaitPlanner:
 
+    @staticmethod
     def get_foot_positions(p_k, psi_k, l, v=0, v_cmd=0, omega_cmd=0, h=0.5, t_stance=2, k=0.03):
         """
         Foot step planner
@@ -43,6 +44,7 @@ class GaitPlanner:
             
         return positions
 
+    @staticmethod
     def gen_body_trajectory(v, omega, dt, x_0, N):
         """
         Generates a body trajectory for a given velocity and angular velocity
@@ -97,6 +99,7 @@ class GaitPlanner:
         
         return body_trajectory_mpc
 
+    @staticmethod
     def gen_foot_positions(body_traj, fsm, leg_shoulder_pos, N, prev_contacts=np.zeros(4), r_ref_prev=np.zeros((4,3))):
         """
         Generate foot positions for a given body trajectory
@@ -167,6 +170,7 @@ class ContactScheduler:
                   "gallop": gallop_params,
                   "bound": bound_params}
     
+    @staticmethod
     def make_fsm(period, t, dt, N, gait_params, phase_offset=0):
         """
         Makes a trot contact sequence for the next N steps, starting at time t
@@ -200,6 +204,7 @@ class ContactScheduler:
             
         return fsm
     
+    @staticmethod
     def time_to_phase(time, offset, period):
         """
         Converts time to phase
